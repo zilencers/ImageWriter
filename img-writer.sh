@@ -1,24 +1,52 @@
 #!/bin/bash
 
+TMP_DIR="/tmp/img-writer"
+FULL_PATH=""
+BLOCK_DEVICE=()
+TARGET=""
+TARGET_SIZE=""
+
 decompress()
 {
    echo "----------------------------------------"
    echo "         Decompressing Image"
    echo "----------------------------------------"
-
-   if [[ "$1" == "-f" && $(wc -l $2 > 0) ]] ; then
-      tar -xf $2
+   
+   file=$(ls $TMP_DIR *.img.gz)
+   concatenate_paths $TMP_DIR $file
+   
+   if [[ -f $FULL_PATH ]] ; then 
+      echo "Checking file integrity....."
+      gunzip -qt $FULL_PATH
+      if [ "$?" == 0  ] ; then
+         echo "Integrity check complete...."
+         echo "Decompressing image...."
+         gunzip $FULL_PATH
+         echo "Image decompression complete...."
+      else
+         echo "Integrity check failed...."
+         echo "Please check the file and try again...."
+         clean_up
+         exit 1
+      fi
    else
       echo "Error: No image file or file not found"
       exit 1
    fi
 }
 
+concatenate_paths() 
+{
+   base_path=${1}
+   sub_path=${2}
+   full_path="${base_path:+$base_path/}$sub_path"
+   FULL_PATH=$(realpath ${full_path})
+}
+
 get_storage_devices()
 {
    local devices=( $(fdisk -l | grep -o "\(/dev/sd\)\(a\|b\|c\|\):\s[0-9]*.[0-9]*\sGiB") )
-   BLOCK_DEVICE=()
-
+   
    for ((i=0 ; i < "${#devices[@]}"; i++)); 
    do
       BLOCK_DEVICE+=("${devices[$i]} ${devices[i+=1]} ${devices[i+=1]}")
@@ -46,12 +74,40 @@ get_target_size()
 
 resize_image()
 {
-   echo ""
+   echo "----------------------------------------"
+   echo "         Resizing Image"
+   echo "----------------------------------------"
+
+   if [ ! $(which qemu-img) ] ; then
+      echo "Error: qemu-img not found"
+      echo "Install with apt install qemu-utils"
+   fi
+   
+   local path=$(dirname "$2")
+   echo $path
+   
+   #local image=$(ls *.img)
+   #image_size=$(du -kh $2 | cut -f1)
+   echo "Target Size: $TARGET_SIZE"
+   #qemu-img resize $2 +$TARGET_SIZE
 }
 
 copy_image()
 {
-   echo ""
+   echo "Setting up temp working directory...."
+   mkdir -p /tmp/img-writer/
+   
+   if [ -f "$2" ] ; then
+      cp $2 $TMP_DIR/
+   fi
+}
+
+clean_up()
+{
+   echo "Cleaning up..."
+   echo "Removing temporary directory..."
+   rm -r $TMP_DIR
+   echo "Clean up complete..."
 }
 
 title()
@@ -80,7 +136,10 @@ main()
       get_storage_devices
       get_target
       get_target_size
-      decompress $@
+      copy_image $@
+      decompress
+      #resize_image $@
+      clean_up
    fi
 }
 
