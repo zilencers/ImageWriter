@@ -84,23 +84,23 @@ resize_image()
    fi
 
    local image_file=$(ls $TMP_DIR *.img)
-   echo "Image Name: $image_file"
-   
    concatenate_paths $TMP_DIR $image_file
-   echo "FULL_PATH: $FULL_PATH"
    
    local image_size=$(du -kh $FULL_PATH | cut -f1 | grep -o '[0-9]\+\.[0-9]\+')
    local target=$(echo $TARGET_SIZE | grep -o '[0-9]\+\.[0-9]\+')
-   echo "Image Size: $image_size"
-   echo "Target Size: $target"
-   resize="$(($target-$image_size))"
-   echo "Resize: $resize"
+   local max_resize=$(echo "scale=2;$target-$image_size" | bc)
    
-   #test=$(echo $image_size | grep -o '[0-9]\+\.[0-9]\+')
-   #echo "Test: $test"
+   echo "The maximum resize value for the target disk is: $max_resize GiB"
+   printf "Press enter to accept the default or enter a new value: "
+   read value
    
-   
-   #qemu-img resize $FULL_PATH +$TARGET_SIZE
+   if [ $value ] ; then
+      echo "New value will be used"
+      #qemu-img resize $FULL_PATH +$value
+   else
+      echo "Default value will be used"
+      #qemu-img resize $FULL_PATH +$max_resize
+   fi
 }
 
 write_to_drive()
