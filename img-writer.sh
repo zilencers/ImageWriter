@@ -12,7 +12,7 @@ decompress()
    echo "         Decompressing Image"
    echo "----------------------------------------"
    
-   file=$(ls $TMP_DIR *.img.gz)
+   local file=$(ls $TMP_DIR *.img.gz)
    concatenate_paths $TMP_DIR $file
    
    if [[ -f $FULL_PATH ]] ; then 
@@ -37,9 +37,9 @@ decompress()
 
 concatenate_paths() 
 {
-   base_path=${1}
-   sub_path=${2}
-   full_path="${base_path:+$base_path/}$sub_path"
+   local base_path=${1}
+   local sub_path=${2}
+   local full_path="${base_path:+$base_path/}$sub_path"
    FULL_PATH=$(realpath ${full_path})
 }
 
@@ -82,17 +82,37 @@ resize_image()
       echo "Error: qemu-img not found"
       echo "Install with apt install qemu-utils"
    fi
+
+   local image_file=$(ls $TMP_DIR *.img)
+   echo "Image Name: $image_file"
    
-   local path=$(dirname "$2")
-   echo $path
+   concatenate_paths $TMP_DIR $image_file
+   echo "FULL_PATH: $FULL_PATH"
    
-   #local image=$(ls *.img)
-   #image_size=$(du -kh $2 | cut -f1)
-   echo "Target Size: $TARGET_SIZE"
-   #qemu-img resize $2 +$TARGET_SIZE
+   local image_size=$(du -kh $FULL_PATH | cut -f1 | grep -o '[0-9]\+\.[0-9]\+')
+   local target=$(echo $TARGET_SIZE | grep -o '[0-9]\+\.[0-9]\+')
+   echo "Image Size: $image_size"
+   echo "Target Size: $target"
+   resize="$(($target-$image_size))"
+   echo "Resize: $resize"
+   
+   #test=$(echo $image_size | grep -o '[0-9]\+\.[0-9]\+')
+   #echo "Test: $test"
+   
+   
+   #qemu-img resize $FULL_PATH +$TARGET_SIZE
 }
 
-copy_image()
+write_to_drive()
+{
+   echo "----------------------------------------"
+   echo "         Copying Image to Drive"
+   echo "----------------------------------------"
+   
+   dd status='progress' if=$1 of=$2 bs=1M
+}
+
+setup_temp_dir()
 {
    echo "Setting up temp working directory...."
    mkdir -p /tmp/img-writer/
@@ -136,9 +156,10 @@ main()
       get_storage_devices
       get_target
       get_target_size
-      copy_image $@
+      setup_temp_dir $@
       decompress
-      #resize_image $@
+      resize_image
+      #write_to_drive
       clean_up
    fi
 }
