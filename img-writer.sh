@@ -81,6 +81,7 @@ resize_image()
    if [ ! $(which qemu-img) ] ; then
       echo "Error: qemu-img not found"
       echo "Install with apt install qemu-utils"
+      exit 1
    fi
 
    local image_file=$(ls $TMP_DIR *.img)
@@ -103,13 +104,21 @@ resize_image()
    fi
 }
 
-write_to_drive()
+write()
 {
    echo "----------------------------------------"
    echo "         Copying Image to Drive"
    echo "----------------------------------------"
    
-   dd status='progress' if=$1 of=$2 bs=1M
+   echo ""
+   printf "WARNING: All data on $TARGET will be destroyed. Are you sure (Yes/No) "
+   read answer
+   
+   if [ "$answer" == "Yes" ] ; then
+      dd status='progress' if=$1 of=$2 bs=1M
+   else
+      echo "Aborting..."
+   fi
 }
 
 setup_temp_dir()
@@ -159,7 +168,7 @@ main()
       setup_temp_dir $@
       decompress
       resize_image
-      #write_to_drive
+      #write
       clean_up
    fi
 }
