@@ -1,6 +1,7 @@
 #!/bin/bash
 
 TMP_DIR="/tmp/img-writer"
+IMAGE_NAME=""
 FULL_PATH=""
 BLOCK_DEVICE=()
 TARGET=""
@@ -12,26 +13,59 @@ decompress()
    echo "         Decompressing Image"
    echo "----------------------------------------"
    
-   local file=$(ls $TMP_DIR *.img.gz)
-   concatenate_paths $TMP_DIR $file
+   concatenate_paths $TMP_DIR $IMAGE_NAME
+   local file_type=$(file $FULL_PATH | grep -o "\(Zip\|7-zip\|rar\|gzip\)")
    
-   if [[ -f $FULL_PATH ]] ; then 
-      echo "Checking file integrity....."
-      gunzip -qt $FULL_PATH
-      if [ "$?" == 0  ] ; then
-         echo "Integrity check complete...."
-         echo "Decompressing image...."
-         gunzip $FULL_PATH
-         echo "Image decompression complete...."
-      else
-         echo "Integrity check failed...."
-         echo "Please check the file and try again...."
-         clean_up
-         exit 1
-      fi
+   if [ ! $file_type ] ; then
+      echo "Image file is not compressed.....skipping"
    else
-      echo "Error: No image file or file not found"
-      exit 1
+      check_integrity $file_type
+      echo "Decompressing image...."
+      
+      case $file_type in
+        'gzip')
+           gunzip $FULL_PATH
+           ;;
+        'Zip')
+           unzip $FULL_PATH
+           ;;
+        '7-zip')
+           7z e $FULL_PATH $TMP_DIR
+           ;;
+        'rar')
+           unrar $FULL_PATH
+           ;;
+      esac
+      echo "Image decompression complete...."
+   fi
+}
+
+check_integrity()
+{
+   echo "Checking file integrity..."
+   
+   case $1 in
+       'gzip')
+          gunzip -qt $FULL_PATH
+          ;;
+       'Zip')
+          zip -qT $FULL_PATH
+          ;;
+       '7-zip')
+          7z t -so $FULL_PATH
+          ;;
+       'rar')
+           unrar t $FULL_PATH
+          ;;
+   esac
+
+   if [ "$?" == 0  ] ; then
+      echo "Integrity check complete...."
+   else
+      echo "Integrity check failed...."
+      echo "Please check the file and try again...."
+      clean_up
+      exit 1   
    fi
 }
 
@@ -72,6 +106,16 @@ get_target_size()
   TARGET_SIZE=$(echo $TARGET | grep -o "[0-9]*\.[0-9]*\sGiB")
 }
 
+convert_image()
+{
+   echo "----------------------------------------"
+   echo "         Converting Image"
+   echo "----------------------------------------"
+   
+   # qcow2, vdi, vmdk, vhd
+
+}
+
 resize_image()
 {
    echo "----------------------------------------"
@@ -84,27 +128,45 @@ resize_image()
       exit 1
    fi
 
-   local image_file=$(ls $TMP_DIR *.img)
-   concatenate_paths $TMP_DIR $image_file
+   IMAGE_NAME=$(ls $TMP_DIR)
+   concatenate_paths $TMP_DIR $IMAGE_NAME
    
    local image_size=$(du -kh $FULL_PATH | cut -f1 | grep -o '[0-9]\+\.[0-9]\+')
    local target=$(echo $TARGET_SIZE | grep -o '[0-9]\+\.[0-9]\+')
    local max_resize=$(echo "scale=2;$target-$image_size" | bc)
    
-   echo "The maximum resize value for the target disk is: $max_resize GiB"
-   printf "Press enter to accept the default or enter a new value: "
-   read value
+#   echo "The maximum resize value for the target disk is: $max_resize GiB"
+#   printf "Press enter to accept the default or enter a new value: "
+#   read value
    
-   if [ $value ] ; then
-      echo "New value will be used"
-      #qemu-img resize $FULL_PATH +$value
-   else
-      echo "Default value will be used"
-      #qemu-img resize $FULL_PATH +$max_resize
-   fi
+#   if [ $value ] ; then
+#      qemu-img resize -f raw $FULL_PATH +$value'G'
+#   else
+#      qemu-img resize -f raw $FULL_PATH +$max_resize'G'
+#   fi
 }
 
-write()
+remove_partitions()
+{
+   echo "target: $1"
+   echo "partitions: $2"
+
+   for element in $2
+   do
+      umount "/dev/$element"
+      echo "Unmounted /dev/$element"
+      read test
+      
+      fdisk "/dev/$1" << EOF
+      d
+      
+      w
+EOF
+
+   done
+}
+
+write_to_disk()
 {
    echo "----------------------------------------"
    echo "         Copying Image to Drive"
@@ -115,7 +177,11 @@ write()
    read answer
    
    if [ "$answer" == "Yes" ] ; then
-      dd status='progress' if=$1 of=$2 bs=1M
+      local target=$(echo $TARGET | grep -o "sd\(a\|b\|c\|d\|e\|f\|g\)")
+      local partitions=( $(cat /proc/partitions | grep -o "$target\(1\|2\|3\|4\|5\|6\|7\|8\|9\)") )
+
+      remove_partitions $target $partitions
+      #dd status=progress if=$FULL_PATH of=$target bs=1M
    else
       echo "Aborting..."
    fi
@@ -127,6 +193,7 @@ setup_temp_dir()
    mkdir -p /tmp/img-writer/
    
    if [ -f "$2" ] ; then
+      IMAGE_NAME=$(basename $2)
       cp $2 $TMP_DIR/
    fi
 }
@@ -167,9 +234,10 @@ main()
       get_target_size
       setup_temp_dir $@
       decompress
-      resize_image
-      #write
-      clean_up
+      #convert_image
+      #resize_image
+      #write_to_disk
+      #clean_up
    fi
 }
 
