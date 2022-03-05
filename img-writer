@@ -59,9 +59,9 @@ create_temp()
 
 move()
 {
-   echo "Moving image file to temp directory..."
+   echo "Copying image file to temp directory..."
    
-   mv $FILE_PATH $TMP_DIR
+   cp $FILE_PATH $TMP_DIR
 }
 
 check_integrity()
@@ -151,7 +151,7 @@ EOF
 write_to_disk()
 {
    echo "----------------------------------------"
-   echo "         Writing Image to Disk"
+   echo "         Write Image to Disk"
    echo "----------------------------------------"
 
    echo ""
@@ -165,10 +165,8 @@ write_to_disk()
       delete_partitions ${partitions[@]}
 
       local raw_image=$(ls $TMP_DIR | grep -i "raw$")
-      echo "Raw Image: $raw_image"
-      echo "Target: $TARGET"
-      echo $device
-      #dd status=progress if=$raw_image of=$TARGET bs=1M
+      
+      dd status=progress if=$raw_image of="/dev/$device" bs=1M
    else
       echo "Aborting..."
    fi
