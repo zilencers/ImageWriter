@@ -1,0 +1,232 @@
+#!/bin/bash
+
+FILE_PATH=""
+TMP_DIR="/tmp/img-writer/"
+BLOCK_DEVICE=()
+TARGET=""
+TARGET_SIZE=""
+
+decompress()
+{
+   echo "----------------------------------------"
+   echo "         Decompressing Image"
+   echo "----------------------------------------"
+
+   local image_file=$(ls $TMP_DIR)
+   join_path $TMP_DIR $image_file
+   cd $TMP_DIR   
+   local file_type=$(file $ABS_PATH | grep -o "\(Zip\|7-zip\|rar\|gzip\)")
+   
+   if [ ! $file_type ] ; then
+      echo "Image file is not compressed.....skipping"
+   else
+      check_integrity $file_type
+      echo "Decompressing image...."
+      
+      case $file_type in
+        'gzip')
+           gunzip $ABS_PATH
+           ;;
+        'Zip')
+           unzip $ABS_PATH
+           ;;
+        '7-zip')
+           7z e $ABS_PATH
+           ;;
+        'rar')
+           unrar $ABS_PATH
+           ;;
+      esac
+      echo "Image decompression complete...."
+   fi
+}
+
+join_path() 
+{
+   local base_path=${1}
+   local sub_path=${2}
+   local full_path="${base_path:+$base_path/}$sub_path"
+   ABS_PATH=$(realpath ${full_path})
+}
+
+create_temp()
+{
+   echo "Creating temp working directory..."
+   
+   mkdir -p $TMP_DIR
+   move
+}
+
+move()
+{
+   echo "Moving image file to temp directory..."
+   
+   mv $FILE_PATH $TMP_DIR
+}
+
+check_integrity()
+{
+   echo "Checking file integrity..."
+   
+   case $1 in
+       'gzip')
+          gunzip -qt $ABS_PATH
+          ;;
+       'Zip')
+          zip -qT $ABS_PATH
+          ;;
+       '7-zip')
+          7z t -so $ABS_PATH
+          ;;
+       'rar')
+           unrar t $ABS_PATH
+          ;;
+   esac
+
+   if [ "$?" == 0  ] ; then
+      echo "Integrity check complete...."
+   else
+      echo "Integrity check failed...."
+      echo "Please check the file and try again...."
+      #clean_up
+      exit 1   
+   fi
+}
+
+get_storage_devices()
+{
+   local devices=( $(fdisk -l | grep -o "\(/dev/sd\)\(a\|b\|c\|\):\s[0-9]*.[0-9]*\sGiB") )
+   
+   for ((i=0 ; i < "${#devices[@]}"; i++)); 
+   do
+      BLOCK_DEVICE+=("${devices[$i]} ${devices[i+=1]} ${devices[i+=1]}")
+   done
+}
+
+get_target()
+{
+   echo ""
+   echo "Please choose target block device: "
+   
+   for ((i=0 ; i < "${#BLOCK_DEVICE[@]}"; i++)); 
+   do
+      echo "$i) ${BLOCK_DEVICE[$i]}"
+   done
+   
+   read choice
+   TARGET=${BLOCK_DEVICE[$choice]}
+}
+
+get_target_size()
+{
+  TARGET_SIZE=$(echo $TARGET | grep -o "[0-9]*\.[0-9]*\sGiB")
+}
+
+delete_partitions()
+{  
+   local partitions=($@)
+   local device=$(cut -c 1-3 <<< ${partitions[1]})
+
+   echo "Unmounting partitions"
+   echo "Deleting partitions"
+   
+   for ((i=0 ; i < ${#partitions[@]}; i++)); 
+   do
+      umount "/dev/${partitions[i]}"
+      
+      fdisk "/dev/$device" << EOF
+      d
+      
+      w
+EOF
+   done
+   
+   if [ $device ] ; then
+      wipefs --all --quiet "/dev/$device"
+   fi
+
+   echo "Process complete..."
+}
+
+write_to_disk()
+{
+   echo "----------------------------------------"
+   echo "         Writing Image to Disk"
+   echo "----------------------------------------"
+
+   echo ""
+   printf "WARNING: All data on $TARGET will be destroyed. Are you sure (Yes/No) "
+   read answer
+
+   if [ "$answer" == "Yes" ] ; then
+      local device=$(echo $TARGET | grep -o "sd\(a\|b\|c\|d\|e\|f\|g\)")
+      local partitions=( $(cat /proc/partitions | grep -o "$device\(1\|2\|3\|4\|5\|6\|7\|8\|9\)") )
+
+      delete_partitions ${partitions[@]}
+
+      local raw_image=$(ls $TMP_DIR | grep -i "raw$")
+      echo "Raw Image: $raw_image"
+      echo "Target: $TARGET"
+      echo $device
+      #dd status=progress if=$raw_image of=$TARGET bs=1M
+   else
+      echo "Aborting..."
+   fi
+}
+
+title()
+{
+   echo "----------------------------------------"
+   echo "              Img Writer"
+   echo "                 v0.2"
+   echo "----------------------------------------"
+}
+
+parse_args()
+{
+   if [ $# -eq 0 ] ; then
+      echo "No agrs passed"
+      help
+      exit 1
+   fi
+   
+   while getopts ":f:h" option ;
+   do
+      case "${option}" in
+          f)
+            FILE_PATH=${OPTARG}
+            ;;
+          h)
+            help
+            exit 0
+            ;;
+         ?)
+            echo "Error: Bad option"
+            exit 1
+            ;;
+      esac
+   done
+}
+
+help()
+{
+   echo "Usage: img-writer [option]"
+   echo "Short Options:"
+   echo "	-h	Print help menu"
+   echo "	-f	Image filename"
+   echo ""
+}
+
+main()
+{
+   title
+   parse_args $@
+   get_storage_devices
+   get_target
+   get_target_size
+   create_temp
+   decompress
+   write_to_disk
+}
+
+main $@
